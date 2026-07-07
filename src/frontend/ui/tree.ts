@@ -145,6 +145,7 @@ class Tree {
     row.style.paddingLeft = (2 + depth * 14) + 'px';
     row.addEventListener('dragstart', (e: DragEvent) => {
       e.dataTransfer?.setData('text/tree-node', n.id);
+      e.dataTransfer?.setData('text/plain', 'tree-node:' + n.id);
       e.dataTransfer!.effectAllowed = 'move';
     });
 

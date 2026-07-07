@@ -4,6 +4,9 @@ import { resolve } from "path";
 export default defineConfig({
   root: "src/frontend",
   base: "./",
+  optimizeDeps: {
+    exclude: ["monaco-editor"],
+  },
   build: {
     outDir: "../../dist/frontend",
     emptyOutDir: true,

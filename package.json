@@ -50,6 +50,7 @@
     "@earendil-works/pi-coding-agent": "^0.80.3",
     "@mdi/font": "^7.4.47",
     "devicon": "^2.17.0",
+    "marked": "^18.0.5",
     "monaco-editor": "^0.55.1"
   },
   "devDependencies": {

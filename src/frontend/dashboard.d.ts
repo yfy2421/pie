@@ -139,6 +139,23 @@ declare function closeFileTab(id: string): void;
 declare function switchTab(fileId: string | null): void;
 declare function renderTabs(): void;
 
+// ─── Chat Attachment Types ──────────────────────────────────────
+type AttachmentKind = "file" | "folder" | "clip";
+
+interface ChatAttachment {
+  id: string;
+  kind: AttachmentKind;
+  path: string;      // relative to workspace root
+  name: string;      // display name
+  // clip only
+  startLine?: number;
+  endLine?: number;
+  // folder only
+  fileCount?: number;
+  totalBytes?: number;
+  truncated?: boolean;
+}
+
 // ExplorerService
 declare class ExplorerService {
   static fetchDir(root: string, path: string): Promise<{ items: any[]; rootDir: string; relativePath: string }>;

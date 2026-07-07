@@ -188,8 +188,8 @@ function renderGit(): void {
 
   // ─── Actions bar ────────────────────────────
   html += `<div class="git-actions-bar">`;
-  html += `<span class="git-action" onclick="App.Git.push()">${_svg("irefresh", 12)} 推送</span>`;
-  html += `<span class="git-action" onclick="App.Git.pull()">${_svg("irefresh", 12)} 拉取</span>`;
+  html += `<span class="git-action" onclick="App.Git.push()">${_svg("iup", 12)} 推送</span>`;
+  html += `<span class="git-action" onclick="App.Git.pull()">${_svg("idown", 12)} 拉取</span>`;
   html += `<span class="git-action git-action-refresh" onclick="App.Git.refreshGit()">${_svg("irefresh", 12)} 刷新</span>`;
   html += `</div>`;
 

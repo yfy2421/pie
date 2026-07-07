@@ -3,6 +3,8 @@ function layout(): void {
   $('app')!.innerHTML = buildTopBar() + buildSideBar() + buildSidePanel() + buildMainArea();
   initResizeHandle();
   renderTabs();
+  // Monaco 会覆盖 body 背景色为白色，强制还原
+  document.body.style.background = 'var(--bg)';
   // 同步侧边栏按钮状态到当前 active panel
   document.querySelectorAll('.sbar .b[data-side]').forEach(b =>
     (b as HTMLElement).classList.toggle('on', (b as HTMLElement).dataset.side === window.__state._activePanel));
@@ -70,7 +72,8 @@ function buildMainArea(): string {
             <span class="fi-tk-l">费用</span><span class="fi-tk-v" id="fi-tk-cost">—</span>
           </div>
         </div>
-        <div class="fi-box">
+        <div class="fi-box" id="fi-box">
+          <div class="fi-drop-zone" id="fi-drop-zone">松开添加文件引用</div>
           <div class="fi-slash" id="fi-slash" style="display:none">
             <div class="fi-slash-item" data-cmd="/explain"><span class="cmd">/explain</span> <span class="desc">解释代码</span></div>
             <div class="fi-slash-item" data-cmd="/refactor"><span class="cmd">/refactor</span> <span class="desc">重构建议</span></div>
@@ -79,13 +82,15 @@ function buildMainArea(): string {
             <div class="fi-slash-item" data-cmd="/audit"><span class="cmd">/audit</span> <span class="desc">安全审计</span></div>
             <div class="fi-slash-item" data-cmd="/fix"><span class="cmd">/fix</span> <span class="desc">修复问题</span></div>
           </div>
+          <div class="fi-attach-bar" id="fi-attach-bar" style="display:none"></div>
           <textarea id="ci" rows="1" placeholder="输入消息...（输入 / 使用快捷命令）" ${window.__state.IL?'disabled':''}></textarea>
           <div class="fi-divider"></div>
           <div class="fi-actions-bar">
             <button class="fi-abtn fi-model" id="fi-model-btn" title="切换模型"><span id="fi-model-name">claude-sonnet</span> <span class="fi-arrow">▾</span></button>
-            <button class="fi-abtn fi-file" id="fi-file-btn" title="添加引用文件">${window.S('iplus', 14)}</button>
+            <button class="fi-abtn fi-mode" id="fi-mode-btn" title="切换模式"><span id="fi-mode-name">自动</span> <span class="fi-arrow">▾</span></button>
+            <button class="fi-abtn fi-file" id="fi-file-btn" title="添加本机文件">${window.S('iplus', 14)}</button>
             <span class="fi-spacer"></span>
-            <button id="cs" class="fi-send-btn" title="${window.__state.IL?'中止':'发送消息'}">${window.__state.IL?'停止':window.S('iz', 16)}</button>
+            <button id="cs" class="fi-send-btn" title="${window.__state.IL?'中止':'发送消息'}">${window.S('iup', 16)}</button>
           </div>
         </div>
       </div>

@@ -10,7 +10,11 @@
  *   - 悬停提示 — HoverProvider
  *   - 跳转定义 — DefinitionProvider
  *   - 查找引用 — ReferenceProvider
+ *
+ * 本地化：NLS 必须在 Monaco 主模块初始化前加载。
+ * Vite optimizeDeps.exclude 防止预构建打乱此顺序。
  */
+import "monaco-editor/esm/nls.messages.zh-cn.js";
 import * as monaco from "monaco-editor";
 
 // ─── 不再需要 addExtraLib — tsserver 子进程直接读文件系统 node_modules
@@ -341,6 +345,12 @@ monaco.editor.defineTheme("app-dark", {
     "editorSuggestWidget.background": "#111118",
     "editorSuggestWidget.border": "#262640",
     "editorSuggestWidget.selectedBackground": "#222238",
+    "menu.background": "#111118",
+    "menu.foreground": "#F1F1F9",
+    "menu.border": "#262640",
+    "menu.selectionBackground": "#222238",
+    "menu.selectionForeground": "#F59E0B",
+    "menu.separatorBackground": "#262640",
     "minimap.background": "#0A0A0F",
   },
 });
@@ -360,6 +370,12 @@ monaco.editor.defineTheme("app-light", {
     "editorLineNumber.activeForeground": "#888888",
     "editorWidget.background": "#FAFAFA",
     "editorWidget.border": "#E0E0E0",
+    "menu.background": "#FAFAFA",
+    "menu.foreground": "#333333",
+    "menu.border": "#D0D0D0",
+    "menu.selectionBackground": "#D6E8FF",
+    "menu.selectionForeground": "#333333",
+    "menu.separatorBackground": "#E0E0E0",
     "minimap.background": "#FAFAFA",
   },
 });
@@ -420,14 +436,6 @@ export function monacoCreateEditor(container: HTMLElement): void {
     bracketPairColorization: { enabled: true },
   });
 
-  // Ctrl+Space 触发补全
-  editor.addAction({
-    id: "trigger-suggest",
-    label: "Trigger Suggest",
-    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space],
-    run: (ed) => ed.getAction("editor.action.triggerSuggest")?.run(),
-  });
-
   // 内容变更时同步到 tsserver（初始内容已通过 tsOpenFile 发送，此处只响应用户输入）
   editor.onDidChangeModelContent(() => {
     if (!editor?.hasTextFocus()) return; // 跳过程序化 setValue，只响应用户输入
@@ -438,6 +446,60 @@ export function monacoCreateEditor(container: HTMLElement): void {
     if (lang !== "typescript" && lang !== "javascript") return;
     tsChangeFile(_currentFilePath, model.getValue());
   });
+
+  // ─── 右键菜单：“添加到当前输入框” ─────────────────────
+  editor.addAction({
+    id: "add-to-chat",
+    label: "添加到当前输入框",
+    contextMenuGroupId: "navigation",
+    contextMenuOrder: 1,
+    run: (ed) => {
+      const selection = ed.getSelection();
+      if (!selection || selection.isEmpty()) {
+        // 无选中内容：整个文件作为引用
+        if (!_currentFilePath) { /* toast handled by caller */ return; }
+        const name = _currentFilePath.split('/').pop() || _currentFilePath;
+        const App = (window as any).App;
+        if (App?.Chat?.addAttachment) {
+          App.Chat.addAttachment({ kind: "file", path: _currentFilePath, name });
+        }
+        return;
+      }
+      // 有选中内容：clip 引用
+      const startLine = selection.startLineNumber;
+      const endLine = selection.endLineNumber;
+      const name = _currentFilePath.split('/').pop() || _currentFilePath;
+      const App = (window as any).App;
+      if (App?.Chat?.addAttachment) {
+        App.Chat.addAttachment({
+          kind: "clip",
+          path: _currentFilePath,
+          name,
+          startLine,
+          endLine,
+        });
+      }
+    },
+  });
+
+  // ─── 汉化兜底：未被 NLS 覆盖的菜单项 ─────────────────
+  const zhFallback: Record<string, string> = {
+    // NLS 可能不覆盖的编辑器菜单项
+    'Change All Occurrences': '更改所有匹配项',
+  };
+  function applyZhFallback(): void {
+    document.querySelectorAll('.monaco-action-bar .action-label, .monaco-menu .action-label').forEach(el => {
+      const raw = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      const normalized = raw.replace(/\([^)]*\)$/g, '').trim();
+      const label = zhFallback[raw] || zhFallback[normalized];
+      if (label && raw !== label) el.textContent = label;
+    });
+  }
+  const zhObs = new MutationObserver(() => {
+    queueMicrotask(applyZhFallback);
+    requestAnimationFrame(applyZhFallback);
+  });
+  zhObs.observe(document.body, { childList: true, subtree: true, characterData: true });
 
   // 启动诊断轮询（每 3 秒轮询当前文件）
   _diagTimer = setInterval(pollDiagnostics, 3000);

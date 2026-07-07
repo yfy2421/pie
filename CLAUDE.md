@@ -39,6 +39,9 @@ my-code-agent/
 │   │       ├── dashboard.ts     ← GET /api/dashboard, /api/paths, /layout-config
 │   │       ├── sessions.ts      ← Session CRUD（列表/新建/删除/重命名/消息）
 │   │       ├── explorer.ts      ← 文件浏览 + 操作（新建/重命名/删除/移动/写入）
+│   │       ├── git.ts            ← Git 状态/日志/提交/推送/拉取
+│   │       ├── search.ts         ← 文件名/全文搜索
+│   │       ├── typescript.ts     ← tsserver 语言服务代理
 │   │       └── settings.ts      ← 设置 / API Keys / 模型切换 / auth
 │   ├── agent/                   ← PI 之上叠的自定义层
 │   │   ├── index.ts             ← initAgent() 封装 createAgentSession()
@@ -68,7 +71,8 @@ my-code-agent/
 │   │   │   ├── search/index.ts   ← 搜索面板（registerPane）
 │   │   │   └── git/index.ts      ← Git 面板（registerPane）
 │   │   └── editor/
-│   │       └── monaco-setup.ts  ← Monaco 编辑器集成
+│   │       ├── monaco-setup.ts  ← Monaco 编辑器集成（NLS 中文预加载 + tsserver 语言服务）
+│   │       └── monaco-setup.js  ← 编译产物（由 compile-frontend-ts 生成）
 │   ├── layout-config.json       ← 布局配置
 │   └── _archive/                ← 废弃的 Vite 备选前端
 ├── data/pi/                     ← 唯一运行时配置
@@ -82,7 +86,7 @@ my-code-agent/
 ├── .mcp.json                    ← MCP 服务器配置
 ├── tsconfig.json                ← 服务端代码编译
 ├── tsconfig.electron.json       ← Electron 主进程编译
-├── vite.config.ts               ← Vite 前端构建
+├── vite.config.ts               ← Vite 前端构建（optimizeDeps.exclude 保证 Monaco NLS 预加载顺序）
 └── vite.electron.config.ts      ← Electron 备选构建
 ```
 
@@ -220,6 +224,8 @@ electronAPI: {
 - **App 命名空间**：全局函数收敛到 `App.UI / App.Chat / App.File / App.Session / App.Settings`
 - **构建管线**：开发时 esbuild transform .ts→.js → Vite build HTML+CSS → 生产用 esbuild 合并 6 个 JS + 压缩
 - **SSE 流**：`/api/chat/stream` Server-Sent Events 实时推送 AI 回复
+- **引用文件**：从目录树拖放 / 编辑器右键菜单 / + 按钮添加文件/文件夹/代码片段作为 LLM 上下文附件，服务端读文件内容拼入 prompt（64KB/文件，256KB 总量）
+- **模式选择**：自动 / 解释 / 计划三种模式，发消息时按模式在消息前拼指令（纯指令版，不碰工具集）。思考深度分 5 档（低/中/高/极高/最高），控制回答详细程度
 - **CSS Grid 三栏**：侧边菜单 60px | 组件面板 174px（可拖拽关闭） | 主聊天区
 
 ### PI 扩展

@@ -297,11 +297,132 @@ Alt+Tab 强制刷新合成器 → 恢复
 4. SSE 清理顺序：先清 `onmessage/onerror` 再 `close()`
 5. 删除后释放 Monaco 焦点 + 暂停 diagnostics 轮询
 
+## Git Pane 写入修复 — 全局 findGitRoot 早期检查（2026-07-07）✅
+
+**问题：** commit/push/pull 全部返回"❌ 当前工作区不是 Git 仓库"，但 status/log 正常。
+
+**根因：** `handleGit` 顶部有一个全局 `findGitRoot` 早期检查（第 114-119 行），对所有请求统一检查 `u.searchParams.get("root") || p.APP_ROOT`。POST 请求不传 `?root=` 查询参数，所以 `root` 回退到 `p.APP_ROOT`（`my-code-agent`）。而 `my-code-agent` 本身不是 git 仓库，导致 **所有 POST 请求在进入具体 handler 之前就被拦截**。
+
+**修复：**
+1. 删除全局早期 `findGitRoot` 检查
+2. 每个 handler 自己独立做 git root 检测
+3. GET handlers 用 `queryRoot || p.APP_ROOT`
+4. POST handlers 用 `body.root || p.APP_ROOT`（之前引用的是已被删除的 `root` 变量）
+5. 在项目根目录执行 `git init` 将其初始化为 git 仓库
+
+## 引用文件 — 拖放 + 按钮 + 右键菜单（2026-07-07）✅
+
+**附件模型：** 三种类型统一用 `ChatAttachment` 表示：
+
+```typescript
+type AttachmentKind = "file" | "folder" | "clip";
+interface ChatAttachment {
+  id: string;
+  kind: AttachmentKind;
+  path: string;      // 相对工作区的路径
+  name: string;      // 显示名
+  startLine?: number; endLine?: number;  // clip 专用
+  fileCount?: number; totalBytes?: number; truncated?: boolean;
+}
+```
+
+**添加方式：**
+
+| 操作 | 生成类型 | 说明 |
+| --- | --- | --- |
+| 从目录树拖文件到输入框 | `file` | 虚线 drop zone 高亮，松开即附加 |
+| 从目录树拖文件夹到输入框 | `folder` | 同上，发送时服务端展开文件列表 |
+| 编辑器选中 → 右键 → 添加到当前输入框 | `clip` | 只传选中行，pill 显示行号 |
+| 点击 + 按钮 | `file` | 打开系统文件选择器 |
+
+**前端**（`src/frontend/dashboard-chat.ts`）：
+
+- `fi-attach-bar`：输入框上方的 pill 展示区，flex-wrap 排列
+- `fi-drop-zone`：拖放时虚线+半透明背景提示
+- Pill：使用 `ExplorerService.iconFor()` 显示 vscode-icons 文件类型图标
+- 点击 pill：文件 → 在标签页打开；clip → 打开并跳转到行
+- 小叉移除附件
+- 发送消息时 `attachments` 数组随 body 传给后端
+
+**后端**（`src/server/routes/chat.ts`）：
+
+- 路径安全校验（必须在 workspace 内）
+- 文件：`readFileSync` + 64KB/文件截断
+- 文件夹：递归 `walkFolder`，跳过 `.git`/`node_modules`/`dist`/`data`/`.claude` / 隐藏文件 / 二进制，最多 50 个文件
+- clip：按行号 `lines.slice(start-1, end)` 提取片段
+- 总上限 256KB，超了截断并标注 `[truncated]`
+- 附件内容以 markdown 代码块追加到用户消息后发送给 `session.prompt()`
+
+**后端校验常量：**
+
+| 限制 | 值 |
+| --- | --- |
+| 单文件最大 | 64KB |
+| 附件总量最大 | 256KB |
+| 文件夹最大文件数 | 50 |
+| 跳过目录 | `node_modules`, `.git`, `dist`, `data`, `.claude` |
+
+## 发送按钮图标简化（2026-07-07）✅
+
+- 发送：`iz`（纸飞机）→ `iup`（上箭头 ↑）
+- 中止：文本"停止" → `ipause`（两条竖线 ||）
+
+## Monaco 编辑器本地化（2026-07-07）✅
+
+**NLS 预加载路线：**
+
+| 方式 | 说明 |
+| --- | --- |
+| NLS 前置 | `import "monaco-editor/esm/nls.messages.zh-cn.js"` 在 `import * as monaco` 之前执行 |
+| Vite 配置 | `optimizeDeps.exclude: ["monaco-editor"]` 防止预构建打乱 import 顺序 |
+| DOM 兜底 | MutationObserver 补 NLS 未覆盖的菜单项（宽 selector + queueMicrotask） |
+| 菜单颜色 | 自定义主题中注入 `menu.*` 颜色变量（background/foreground/border/selection） |
+
+**汉化映射表**（`src/frontend/editor/monaco-setup.ts`）：
+
+英文在 `zhMenu` 映射表中保留，便于后期切换其他语言或生成正式的 NLS 配置。
+
+## 对话模式选择 — 纯指令版（2026-07-07）✅
+
+**架构：** 不改 system prompt，不碰工具集，发消息时在消息前拼接模式指令。
+
+**三种模式：**
+
+| 模式 | 按钮文案 | 指令 |
+| --- | --- | --- |
+| 自动 | 自动 | 不加任何指令 |
+| 解释 | 解释 | `仅解释，不要修改任何文件或执行命令。` |
+| 计划 | 计划 | `不要执行任何操作。输出结构化方案：目标 → 步骤 → 涉及文件 → 风险。` |
+
+**思考深度（prompt 指令级）：**
+
+| 档位 | 指令 |
+| --- | --- |
+| 低 | `简要回答即可。` |
+| 中 | 不加指令 |
+| 高 | `请深入分析，考虑边界情况。` |
+| 极高 | `请进行深度分析，考虑多种可能性和边界情况。` |
+| 最高 | `请穷尽所有可能性，进行彻底分析和验证。` |
+
+> **未来升级：** 真实 reasoning budget 需等自定义 agent 层完成后，通过底层 API `thinking` 参数控制。当前仅为 prompt 指令级。
+
+**UI**（`src/frontend/dashboard-chat.ts`）：
+
+- 模型按钮右侧新增 `[ 自动 ▾ ]` 模式按钮
+- 点击弹出下拉：模式选择（自动/解释/计划）+ 思考深度选择（低/中/高/极高/最高）
+- 状态持久化到 localStorage（`chat-mode` / `chat-effort`）
+
+**前端模块**（`src/frontend/dashboard-chat.ts`）：
+
+- `MODE_INSTRUCTIONS` / `EFFORT_INSTRUCTIONS` — 指令映射表
+- `buildInstruction()` — 发消息时拼装指令前缀
+- `showModePopup()` — 模式选择浮动弹窗
+- `setMode()` / `setEffort()` — 切换并持久化
+
 ## 待完成（对话框按钮栏）
 
 | 按钮 | 功能 | 参考 |
 | --- | --- | --- |
-| `+`（添加引用文件） | 选择文件/文件夹作为 LLM 上下文附件 | Claude Code `@` 引用 |
 | `模式`（未实现） | 解释/计划/自动，Effort 滑动条 | Claude Code 的 `/mode` 命令 |
 
 ## 长期不计划
