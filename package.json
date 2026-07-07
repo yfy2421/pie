@@ -1,0 +1,63 @@
+{
+  "name": "my-code-agent",
+  "version": "0.0.1",
+  "private": true,
+  "description": "基于 PI 架构的自定义 Code Agent — 桌面端为主，CLI 为辅",
+  "type": "module",
+  "main": "dist-electron/electron/electron-main.js",
+  "scripts": {
+    "start": "node scripts/dev.mjs",
+    "dev": "node scripts/compile-frontend-ts.mjs && node scripts/dev.mjs",
+    "compile:frontend-ts": "node scripts/compile-frontend-ts.mjs",
+    "cli": "tsx src/server/main.ts --cli",
+    "build:vite": "node scripts/build-frontend.mjs",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "typecheck:frontend": "tsc -p src/tsconfig.frontend.json --noEmit",
+    "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p src/tsconfig.frontend.json --noEmit",
+    "build": "node scripts/build-frontend.mjs && tsc -p tsconfig.electron.json",
+    "dist:portable": "npm run build && electron-builder --win portable",
+    "dist:dir": "npm run build && electron-builder --win dir",
+    "clean": "node scripts/clean.mjs"
+  },
+  "build": {
+    "appId": "com.mycodeagent.desktop",
+    "productName": "MyCodeAgent",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "extraResources": [],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": null
+    },
+    "portable": {
+      "artifactName": "MyCodeAgent-${version}.exe"
+    },
+    "asar": false
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.3",
+    "@mdi/font": "^7.4.47",
+    "devicon": "^2.17.0",
+    "monaco-editor": "^0.55.1"
+  },
+  "devDependencies": {
+    "chokidar": "^4.0.0",
+    "electron": "^30.5.1",
+    "electron-builder": "^24.0.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.0",
+    "vite": "^6.4.3"
+  }
+}

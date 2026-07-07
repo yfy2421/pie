@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-electron/
+data/
+release/
+*.log
+src/frontend/*.js
+src/frontend/**/*.js
+example/

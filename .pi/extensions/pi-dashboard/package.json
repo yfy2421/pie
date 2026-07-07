@@ -1,0 +1,10 @@
+{
+  "name": "pi-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pi Dashboard — session stats, model info, tool config, quick actions",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
