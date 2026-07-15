@@ -5,7 +5,6 @@
 let _st: string = 'model';
 let _selectedProvider: string | null = null;
 let _provKeys: Record<string, ProviderKeyInfo> = {};
-let _allProvData: any[] = [];
 
 function openSettingsModal(): void { _st = 'model'; showSettingsModal(); }
 
@@ -94,12 +93,6 @@ function switchSettingsModal(tab: string): void {
       <div class="gs-section">
         <div class="gs-section-title">应用设置</div>
         <div class="gs-group">
-          <div class="gs-row">
-            <span class="gs-label">启动时恢复上次会话</span>
-            <div class="gs-control">
-              <label class="gs-toggle"><input type="checkbox" id="gs-restore-session" onchange="toggleRestoreSession()" checked><span class="gs-toggle-slider"></span></label>
-            </div>
-          </div>
           <div class="gs-row" style="border:none">
             <span class="gs-label">自动保存</span>
             <div class="gs-control">
@@ -151,7 +144,7 @@ function switchSettingsModal(tab: string): void {
       <h3 class="s-title">关于</h3>
       <p class="s-desc">My Code Agent — 基于 PI 框架的自定义编程助手</p>
       <div class="s-section"><span class="s-label">版本</span><span class="s-value">0.0.1</span></div>
-      <div class="s-section"><span class="s-label">框架</span><span class="s-value">@earendil-works/pi-coding-agent v0.80.3</span></div>
+      <div class="s-section"><span class="s-label">框架</span><span class="s-value">@xiamol/pi-coding-agent v0.80.3</span></div>
     `;
   }
 }
@@ -248,15 +241,6 @@ function toggleAutoSaveSetting(): void {
   }
 }
 
-function toggleRestoreSession(): void {
-  const el = document.getElementById('gs-restore-session') as HTMLInputElement | null;
-  if (el) {
-    if (el.checked) localStorage.removeItem('no-restore-session');
-    else localStorage.setItem('no-restore-session', '1');
-    toast('启动恢复: ' + (el.checked ? '开' : '关'));
-  }
-}
-
 function changeFontSize(delta: number): void {
   const el = $('gs-fontsize');
   if (!el) return;
@@ -326,7 +310,6 @@ window.provDrop = provDrop as any;
 window.changeFontSize = changeFontSize;
 window.applyGeneralSetting = applyGeneralSetting;
 window.toggleAutoSaveSetting = toggleAutoSaveSetting;
-window.toggleRestoreSession = toggleRestoreSession;
 
 // ─── App 命名空间绑定 ──────────────────────────────────────
 const AppSett = (window as any).App?.Settings;
@@ -342,4 +325,7 @@ if (AppSett) {
   AppSett.provDragStart = provDragStart;
   AppSett.provDragOver = provDragOver;
   AppSett.provDrop = provDrop;
+  AppSett.changeFontSize = changeFontSize;
+  AppSett.applyGeneralSetting = applyGeneralSetting;
+  AppSett.toggleAutoSaveSetting = toggleAutoSaveSetting;
 }

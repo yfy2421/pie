@@ -196,6 +196,10 @@ function reloadWindow(port: number): void {
 
 function createWindow() {
   if (!process.env.VITE_DEV_PORT && !serverPort) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus();
+    return;
+  }
 
   mainWindow = new BrowserWindow({
     width: 1100,
@@ -243,11 +247,11 @@ function createWindow() {
     console.log("📄 Page loaded:", mainWindow?.webContents.getTitle());
   });
 
-  mainWindow.webContents.on("did-fail-load", (_event: any, errorCode: any, errorDescription: any, url: any) => {
+  mainWindow.webContents.on("did-fail-load", (_event: unknown, errorCode: number, errorDescription: string, url: string) => {
     console.error(`❌ Window load failed: ${errorDescription} (code: ${errorCode}) url: ${url}`);
   });
 
-  mainWindow.webContents.on("console-message", (_event: any, level: any, message: any, line: any, sourceId: any) => {
+  mainWindow.webContents.on("console-message" as any, (_event: Electron.Event, level: number, message: string, line: number, sourceId: number) => {
     if (message.includes("404") || message.includes("Failed") || message.includes("Error")) {
       console.warn(`[page:${sourceId}:${line}] ${message}`);
     }

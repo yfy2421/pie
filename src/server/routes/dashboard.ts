@@ -8,7 +8,8 @@ import { resolve } from "path";
 export const handleDashboard: RouteHandler = (req, res, ctx) => {
   const { url } = req;
   const cors = { "Access-Control-Allow-Origin": "*" };
-  const { session, paths: p } = ctx;
+  const { runtime, paths: p } = ctx;
+  const session = runtime.session;
 
   // Dashboard data
   if (url === "/api/dashboard") {
@@ -22,8 +23,8 @@ export const handleDashboard: RouteHandler = (req, res, ctx) => {
       runtime: process.uptime(),
       messagesCount: session.messages?.length ?? 0,
       isIdle: !session.isStreaming,
-      tools: (session.agent?.state?.tools || []).map((t: any) => t.name),
-      activeTools: (session.agent?.state?.tools || []).map((t: any) => t.name),
+      tools: ((session.agent?.state?.tools as Array<{name: string}> | undefined) || []).map((t) => t.name),
+      activeTools: ((session.agent?.state?.tools as Array<{name: string}> | undefined) || []).map((t) => t.name),
       dataDir: p.DATA_DIR,
       sessionsDir: p.SESSIONS_DIR,
       sessionId: (session as any).sessionManager?.getSessionId?.() ?? "",
@@ -34,12 +35,12 @@ export const handleDashboard: RouteHandler = (req, res, ctx) => {
 
   // Token usage — context + session stats + cost + provider
   if (url === "/api/token-usage") {
-    let cu: any = null;
-    let stats: any = null;
+    let cu: { tokens: number; contextWindow: number; percent: number } | null = null;
+    let stats: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; cost: number } | null = null;
     try { cu = (session as any).getContextUsage?.(); } catch {}
     try { stats = (session as any).getSessionStats?.(); } catch {}
     const provider = session.model?.provider ?? "unknown";
-    const out: any = { contextUsage: null, sessionStats: null, provider };
+    const out: { contextUsage: typeof cu; sessionStats: typeof stats; provider: string } = { contextUsage: null, sessionStats: null, provider };
     if (cu) out.contextUsage = { tokens: cu.tokens ?? null, contextWindow: cu.contextWindow ?? 200000, percent: cu.percent ?? null };
     if (stats) out.sessionStats = { tokens: stats.tokens ?? null, cost: stats.cost ?? null };
     res.writeHead(200, { "Content-Type": "application/json", ...cors });

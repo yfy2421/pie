@@ -12,19 +12,11 @@
  *   GET  /api/ts/diagnostics?file=...&projectRoot=...
  */
 import type { RouteHandler } from "./types";
+import { parseBody } from "./parse-body";
 
 const cors = { "Access-Control-Allow-Origin": "*" };
 
-function parseBody(req: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (c: Buffer) => { body += c.toString(); });
-    req.on("end", () => { try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid JSON")); } });
-    req.on("error", reject);
-  });
-}
-
-async function getTsServer(ctx: any): Promise<any> {
+async function getTsServer(ctx: import("./types").ServerContext): Promise<import("../ts-server").TsserverManager> {
   const tsServer = ctx.tsServer;
   if (!tsServer) throw new Error("TSServer not available");
   if (!tsServer.isRunning()) {
@@ -61,9 +53,9 @@ export const handleTypeScript: RouteHandler = async (req, res, ctx) => {
       const all = [...(semantic || []), ...(syntactic || [])];
       res.writeHead(200, { "Content-Type": "application/json", ...cors });
       res.end(JSON.stringify(all));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(200, { ...cors });
-      res.end(JSON.stringify({ success: false, error: err.message }));
+      res.end(JSON.stringify({ success: false, error: (err as Error).message }));
     }
     return true;
   }
@@ -172,9 +164,9 @@ export const handleTypeScript: RouteHandler = async (req, res, ctx) => {
       default:
         return false;
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     res.writeHead(200, { ...cors });
-    res.end(JSON.stringify({ success: false, error: err.message }));
+    res.end(JSON.stringify({ success: false, error: (err as Error).message }));
     return true;
   }
 };

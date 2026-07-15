@@ -16,6 +16,10 @@ interface GitStatusEntry {
 
 interface GitStatusResponse {
   gitRoot: string;
+  branch?: string;
+  ahead?: number;
+  behind?: number;
+  lastCommit?: string;
   entries: GitStatusEntry[];
   total: number;
   modified: number;
@@ -53,7 +57,7 @@ function el(id: string): HTMLElement | null {
 }
 
 function getRoot(): string {
-  return localStorage.getItem("workspace_path") || "";
+  return localStorage.getItem(App.Constants.WS_KEY) || "";
 }
 
 // ─── Status label & color ───────────────────────────────────────
@@ -126,6 +130,24 @@ function renderGit(): void {
   }
 
   let html = "";
+
+  // ─── Branch & remote status bar ────────────
+  const branch = _statusData?.branch;
+  const ahead = _statusData?.ahead;
+  const behind = _statusData?.behind;
+  const lastCommit = _statusData?.lastCommit;
+  if (branch) {
+    html += `<div class="git-branch-bar">`;
+    html += `<span class="git-branch-name">${E(branch)}</span>`;
+    if (ahead !== undefined && behind !== undefined) {
+      if (ahead > 0 && behind > 0) html += `<span class="git-remote">↑${ahead} ↓${behind}</span>`;
+      else if (ahead > 0) html += `<span class="git-remote">↑${ahead}</span>`;
+      else if (behind > 0) html += `<span class="git-remote">↓${behind}</span>`;
+      else html += `<span class="git-remote git-remote-clean">✓</span>`;
+    }
+    if (lastCommit) html += `<span class="git-last-commit">${E(lastCommit)}</span>`;
+    html += `</div>`;
+  }
 
   // ─── Changes section ───────────────────────
   const entries = _statusData?.entries || [];
@@ -238,8 +260,9 @@ async function openGitFile(filePath: string): Promise<void> {
     const content = d.encoding === "base64" ? "[二进制文件，无法预览]" : d.content;
     const lang = filePath.split(".").pop() || "";
     openFileTab(filePath, content, lang);
-  } catch (e: any) {
-    toast("读取失败: " + (e.message || e), "error");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    toast("读取失败: " + msg, "error");
   }
 }
 

@@ -4,20 +4,15 @@
 import type { RouteHandler } from "./types";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
+import { parseBody } from "./parse-body";
 
 const cors = { "Access-Control-Allow-Origin": "*" };
 
-function parseBody(req: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (c: Buffer) => { body += c.toString(); });
-    req.on("end", () => { try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid JSON")); } });
-  });
-}
-
 export const handleSettings: RouteHandler = async (req, res, ctx) => {
   const { url, method } = req;
-  const { session, modelRegistry, paths: p } = ctx;
+  const { runtime, paths: p } = ctx;
+  const session = runtime.session;
+  const modelRegistry = runtime.modelRegistry;
 
   // List available models (only those with configured API key in auth.json)
   if (url === "/api/models") {
@@ -30,8 +25,8 @@ export const handleSettings: RouteHandler = async (req, res, ctx) => {
       configuredProviders = Object.keys(auth).filter(k => auth[k]?.apiKey);
     } catch { /* no auth.json yet */ }
     const filtered = configuredProviders.length === 0
-      ? all.map((m: any) => ({ provider: m.provider, id: m.id }))  // first run: show all
-      : all.filter((m: any) => configuredProviders.includes(m.provider)).map((m: any) => ({ provider: m.provider, id: m.id }));
+      ? all.map((m: { provider: string; id: string }) => ({ provider: (m as { provider: string; id: string }).provider, id: (m as { provider: string; id: string }).id }))  // first run: show all
+      : all.filter((m: { provider: string }) => configuredProviders.includes((m as { provider: string }).provider)).map((m: { provider: string; id: string }) => ({ provider: m.provider, id: m.id }));
     res.writeHead(200, { "Content-Type": "application/json", ...cors });
     res.end(JSON.stringify({ models: filtered }));
     return true;
@@ -41,7 +36,7 @@ export const handleSettings: RouteHandler = async (req, res, ctx) => {
   if (url === "/api/settings" && method === "POST") {
     try {
       const data = await parseBody(req);
-      let settings: any = {};
+      let settings: Record<string, unknown> = {};
       if (existsSync(p.SETTINGS_FILE)) {
         settings = JSON.parse(readFileSync(p.SETTINGS_FILE, "utf-8"));
       }
@@ -50,9 +45,9 @@ export const handleSettings: RouteHandler = async (req, res, ctx) => {
       writeFileSync(p.SETTINGS_FILE, JSON.stringify(settings, null, 2));
       res.writeHead(200, { ...cors });
       res.end(JSON.stringify({ ok: true }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { ...cors });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: (err as Error).message }));
     }
     return true;
   }
@@ -70,9 +65,9 @@ export const handleSettings: RouteHandler = async (req, res, ctx) => {
       }));
       res.writeHead(200, { "Content-Type": "application/json", ...cors });
       res.end(JSON.stringify({ providers: providerKeys }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { ...cors });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: (err as Error).message }));
     }
     return true;
   }
@@ -83,15 +78,15 @@ export const handleSettings: RouteHandler = async (req, res, ctx) => {
       const { provider, apiKey } = await parseBody(req);
       if (!provider || !apiKey) { res.writeHead(400, { ...cors }); res.end(JSON.stringify({ error: "provider and apiKey required" })); return true; }
       const authFile = resolve(p.PI_CONFIG_DIR, "auth.json");
-      let authData: any = {};
+      let authData: Record<string, unknown> = {};
       if (existsSync(authFile)) authData = JSON.parse(readFileSync(authFile, "utf-8"));
       authData[provider] = { apiKey };
       writeFileSync(authFile, JSON.stringify(authData, null, 2));
       res.writeHead(200, { ...cors });
       res.end(JSON.stringify({ ok: true }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { ...cors });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: (err as Error).message }));
     }
     return true;
   }
@@ -107,7 +102,7 @@ export const handleSettings: RouteHandler = async (req, res, ctx) => {
         return true;
       }
       // Persist to settings
-      let settings: any = {};
+      let settings: Record<string, unknown> = {};
       if (existsSync(p.SETTINGS_FILE)) {
         settings = JSON.parse(readFileSync(p.SETTINGS_FILE, "utf-8"));
       }
@@ -118,9 +113,9 @@ export const handleSettings: RouteHandler = async (req, res, ctx) => {
       await session.setModel(model);
       res.writeHead(200, { "Content-Type": "application/json", ...cors });
       res.end(JSON.stringify({ ok: true }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { ...cors });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: (err as Error).message }));
     }
     return true;
   }
@@ -133,9 +128,9 @@ export const handleSettings: RouteHandler = async (req, res, ctx) => {
       writeFileSync(layoutPath, JSON.stringify(data, null, 2));
       res.writeHead(200, { ...cors });
       res.end(JSON.stringify({ ok: true }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { ...cors });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: (err as Error).message }));
     }
     return true;
   }

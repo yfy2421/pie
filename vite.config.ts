@@ -25,5 +25,12 @@ export default defineConfig({
   plugins: [
     // 开发模式：/ → /dashboard.html（Vite 默认只认 index.html）
     { name: "dev-index", configureServer(s) { s.middlewares.use((r, _, n) => { if (r.url === "/" || r.url === "/index.html") r.url = "/dashboard.html"; n(); }); } },
+    // 构建时剥离非 module 的 <script> 标签（它们由 esbuild 单独打包，Vite 无需处理）
+    { name: "strip-non-module", transformIndexHtml: { order: "pre", handler(html, ctx) {
+      if (!ctx.server && ctx.filename) { // build mode (no dev server, has filename)
+        return html.replace(/<script(?![\s>]*type=["']module)[\s\S]*?<\/script>\n?/g, "");
+      }
+      return html;
+    } } },
   ],
 });

@@ -38,7 +38,7 @@ async function doNewFile(parentId: string, name: string): Promise<void> {
     await ExplorerService.fileOp('new', ws(), relPath);
     ExplorerService.refreshTree();
     toast('已创建: ' + name, 'success');
-  } catch (e: any) { toast('创建失败: ' + (e.message || e), 'error'); }
+  } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); toast('创建失败: ' + msg, 'error'); }
 }
 async function doNewFolder(parentId: string, name: string): Promise<void> {
   try {
@@ -46,7 +46,7 @@ async function doNewFolder(parentId: string, name: string): Promise<void> {
     await ExplorerService.fileOp('new', ws(), relPath);
     ExplorerService.refreshTree();
     toast('已创建: ' + name, 'success');
-  } catch (e: any) { toast('创建失败: ' + (e.message || e), 'error'); }
+  } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); toast('创建失败: ' + msg, 'error'); }
 }
 
 function initTree(container: HTMLElement): void {
@@ -57,8 +57,8 @@ function initTree(container: HTMLElement): void {
     try {
       const d = await ExplorerService.fetchDir(ws(), node.id);
       cb(ExplorerService.toTreeNodes(d.items));
-    } catch (e: any) {
-      const msg = e.message || '加载失败';
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('Access denied') || msg.includes('403')) toast('无权限访问: ' + node.id, 'error');
       else if (msg.includes('not found') || msg.includes('404')) toast('路径不存在: ' + node.id, 'error');
       else if (msg.includes('timeout') || msg.includes('TIMEOUT')) toast('加载超时: ' + node.id, 'error');
@@ -103,7 +103,7 @@ function initTree(container: HTMLElement): void {
             await ExplorerService.fileOp('rename', ws(), n.id, parent ? parent + '/' + newName : newName);
             ExplorerService.refreshTree();
             toast('已重命名', 'success');
-          } catch (e: any) { toast('重命名失败: ' + (e.message || e), 'error'); }
+          } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); toast('重命名失败: ' + msg, 'error'); }
         });
       },
     },
@@ -119,7 +119,7 @@ function initTree(container: HTMLElement): void {
           }
           ExplorerService.refreshTree();
           toast('已删除', 'success');
-        } catch (e: any) { toast('删除失败: ' + (e.message || e), 'error'); }
+        } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); toast('删除失败: ' + msg, 'error'); }
       },
     },
   ];
@@ -144,7 +144,9 @@ function initTree(container: HTMLElement): void {
         if (dstParent && dstParent !== srcParent) tr._childCache?.delete(dstParent);
         // 刷新根目录
         const d = await ExplorerService.fetchDir(ws(), '');
-        tr.setData(ExplorerService.toTreeNodes(d.items));
+        const rootItems = ExplorerService.toTreeNodes(d.items);
+        tr.setData(rootItems);
+        (ExplorerService as any)._lastRefreshKey = JSON.stringify(rootItems.map(item => `${item.isDir ? 'd' : 'f'}:${item.id}:${item.label}`));
         // 展开受影响的两个目录
         for (const pid of [srcParent, dstParent].filter(Boolean)) {
           tr._expanded?.add(pid);
@@ -155,7 +157,7 @@ function initTree(container: HTMLElement): void {
         }
       }
       toast('已移动', 'success');
-    } catch (e: any) { toast('移动失败: ' + (e.message || e), 'error'); }
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); toast('移动失败: ' + msg, 'error'); }
   };
 
   tree.onSelect = async (node) => {
@@ -169,16 +171,21 @@ function initTree(container: HTMLElement): void {
       const lang = d.path?.split('.').pop() || '';
       console.log("[explorer] calling openFileTab:", node.id);
       openFileTab(node.id, content, lang);
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("[explorer] read failed:", e);
-      toast('读取失败: ' + (e.message || e), 'error');
+      toast('读取失败: ' + msg, 'error');
     }
   };
 
   ExplorerService.fetchDir(ws(), '')
-    .then(d => tree.setData(ExplorerService.toTreeNodes(d.items)))
-    .catch((e: any) => {
-      const msg = e?.message || '';
+    .then(d => {
+      const items = ExplorerService.toTreeNodes(d.items);
+      tree.setData(items);
+      (ExplorerService as any)._lastRefreshKey = JSON.stringify(items.map(item => `${item.isDir ? 'd' : 'f'}:${item.id}:${item.label}`));
+    })
+    .catch((e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('Access denied') || msg.includes('403')) container.innerHTML += '<div class="sg-item dim" style="color:var(--rs)">无权限访问工作区</div>';
       else if (msg.includes('not found') || msg.includes('404')) container.innerHTML += '<div class="sg-item dim">工作区路径不存在</div>';
       else container.innerHTML += '<div class="sg-item dim">加载失败</div>';

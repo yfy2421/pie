@@ -1,106 +1,16 @@
 /**
- * Git routes — read-only git status & log
+ * Git routes — status, log, commit, push, pull
  *
- * GET /api/git/status?root=...
- * GET /api/git/log?root=...&count=10
+ * 核心解析逻辑在 git-core.ts，此处仅 HTTP 路由分发。
  */
 import type { RouteHandler } from "./types";
 import { execSync } from "child_process";
-import { resolve } from "path";
-import { existsSync } from "fs";
+import { parseBody } from "./parse-body";
+import { findGitRoot, parsePorcelain, parseLog } from "./git-core";
 
 const cors = { "Access-Control-Allow-Origin": "*" };
 
-interface GitStatusEntry {
-  x: string;        // index status
-  y: string;        // working tree status
-  path: string;     // file path
-  renamePath?: string; // for renames
-}
-
-interface GitLogEntry {
-  hash: string;
-  date: string;
-  message: string;
-  author?: string;
-}
-
-function findGitRoot(dir: string): string | null {
-  let current = resolve(dir);
-  for (let i = 0; i < 20; i++) {
-    if (existsSync(resolve(current, ".git"))) return current;
-    const parent = resolve(current, "..");
-    if (parent === current) return null;
-    current = parent;
-  }
-  return null;
-}
-
-function parsePorcelain(output: string): GitStatusEntry[] {
-  const entries: GitStatusEntry[] = [];
-  for (const line of output.split("\n")) {
-    if (!line.trim()) continue;
-    // --porcelain format: XY filename
-    // For renames: XY orig -> new
-    const x = line[0] || " ";
-    const y = line[1] || " ";
-    const rest = line.slice(3).trim();
-    if (rest.includes(" -> ")) {
-      const [orig, renamed] = rest.split(" -> ");
-      entries.push({ x, y, path: orig.trim(), renamePath: renamed?.trim() });
-    } else {
-      entries.push({ x, y, path: rest });
-    }
-  }
-  return entries;
-}
-
-function parseLog(output: string): GitLogEntry[] {
-  const entries: GitLogEntry[] = [];
-  for (const line of output.split("\n")) {
-    if (!line.trim()) continue;
-    // --oneline format: hash SP subject
-    const spaceIdx = line.indexOf(" ");
-    if (spaceIdx === -1) continue;
-    entries.push({ hash: line.slice(0, spaceIdx), date: "", message: line.slice(spaceIdx + 1) });
-  }
-  return entries;
-}
-
-/** Get full log with dates for detail display */
-function parseLogVerbose(output: string): GitLogEntry[] {
-  const entries: GitLogEntry[] = [];
-  let current: Partial<GitLogEntry> | null = null;
-  for (const line of output.split("\n")) {
-    if (line.startsWith("commit ")) {
-      if (current?.hash) entries.push(current as GitLogEntry);
-      current = { hash: line.slice(7).trim() };
-    } else if (line.startsWith("Date:") && current) {
-      current.date = line.slice(5).trim();
-    } else if (line.startsWith("    ") && current) {
-      current.message = (current.message || "") + line.trim() + " ";
-    }
-  }
-  if (current?.hash) entries.push(current as GitLogEntry);
-  return entries;
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  M: "修改", A: "新增", D: "删除", R: "重命名",
-  C: "复制", U: "未合并", "?": "未跟踪", "!": "忽略",
-};
-
-function statusLabel(code: string): string {
-  return STATUS_LABELS[code] || code;
-}
-
-function parseBody(req: any): Promise<any> {
-  return new Promise((resolve) => {
-    let body = "";
-    req.on("data", (c: Buffer) => body += c.toString());
-    req.on("end", () => { try { resolve(JSON.parse(body)); } catch { resolve({}); } });
-  });
-}
+export { findGitRoot } from "./git-core";
 
 export const handleGit: RouteHandler = async (req, res, ctx) => {
   const { url, method } = req;
@@ -128,9 +38,25 @@ export const handleGit: RouteHandler = async (req, res, ctx) => {
         stdio: ["pipe", "pipe", "pipe"],
       });
       const entries = parsePorcelain(output);
+      // 附加信息：分支 / 远程差异 / 最新 commit
+      let branch = "HEAD";
+      try { branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: gitRoot, encoding: "utf-8", timeout: 5000, stdio: "pipe" }).trim(); } catch {}
+      let ahead = 0, behind = 0;
+      try {
+        const revs = execSync("git rev-list --count --left-right HEAD...@{upstream}", { cwd: gitRoot, encoding: "utf-8", timeout: 5000, stdio: "pipe" }).trim();
+        const parts = revs.split("\t");
+        ahead = parseInt(parts[0] || "0", 10);
+        behind = parseInt(parts[1] || "0", 10);
+      } catch {}
+      let lastCommit = "";
+      try { lastCommit = execSync("git log -1 --format=%h %s", { cwd: gitRoot, encoding: "utf-8", timeout: 5000, stdio: "pipe" }).trim(); } catch {}
       res.writeHead(200, { "Content-Type": "application/json", ...cors });
       res.end(JSON.stringify({
         gitRoot,
+        branch,
+        ahead,
+        behind,
+        lastCommit,
         entries,
         total: entries.length,
         modified: entries.filter(e => e.y === "M" || e.x === "M").length,
@@ -164,7 +90,7 @@ export const handleGit: RouteHandler = async (req, res, ctx) => {
 
     // POST /api/git/commit
     if (url.startsWith("/api/git/commit") && method === "POST") {
-      const body = await parseBody(req);
+      const body = await parseBody(req).catch(() => ({}));
       const msg = (body.message || "").trim();
       const bodyRoot = body.root || p.APP_ROOT;
       const gitRoot2 = findGitRoot(bodyRoot);
@@ -183,7 +109,7 @@ export const handleGit: RouteHandler = async (req, res, ctx) => {
 
     // POST /api/git/push
     if (url.startsWith("/api/git/push") && method === "POST") {
-      const body = await parseBody(req);
+      const body = await parseBody(req).catch(() => ({}));
       const bodyRoot = body.root || p.APP_ROOT;
       const gitRoot2 = findGitRoot(bodyRoot);
       if (!gitRoot2) {
@@ -195,8 +121,9 @@ export const handleGit: RouteHandler = async (req, res, ctx) => {
         execSync(`git push`, { cwd: gitRoot2, encoding: "utf-8", timeout: 60000, stdio: "pipe" });
         res.writeHead(200, { "Content-Type": "application/json", ...cors });
         res.end(JSON.stringify({ ok: true, message: "推送成功" }));
-      } catch (pushErr: any) {
-        const errMsg = pushErr.stderr?.toString() || pushErr.message || "推送失败";
+      } catch (pushErr: unknown) {
+        const msg = pushErr instanceof Error ? pushErr.message : String(pushErr);
+        const errMsg = (pushErr as any).stderr?.toString() || msg || "推送失败";
         res.writeHead(200, { ...cors });
         res.end(JSON.stringify({ error: "push_error", message: errMsg }));
       }
@@ -205,7 +132,7 @@ export const handleGit: RouteHandler = async (req, res, ctx) => {
 
     // POST /api/git/pull
     if (url.startsWith("/api/git/pull") && method === "POST") {
-      const body = await parseBody(req);
+      const body = await parseBody(req).catch(() => ({}));
       const bodyRoot = body.root || p.APP_ROOT;
       const gitRoot2 = findGitRoot(bodyRoot);
       if (!gitRoot2) {
@@ -217,21 +144,19 @@ export const handleGit: RouteHandler = async (req, res, ctx) => {
         execSync(`git pull`, { cwd: gitRoot2, encoding: "utf-8", timeout: 60000, stdio: "pipe" });
         res.writeHead(200, { "Content-Type": "application/json", ...cors });
         res.end(JSON.stringify({ ok: true, message: "拉取成功" }));
-      } catch (pullErr: any) {
-        const errMsg = pullErr.stderr?.toString() || pullErr.message || "拉取失败";
+      } catch (pullErr: unknown) {
+        const msg = pullErr instanceof Error ? pullErr.message : String(pullErr);
+        const errMsg = (pullErr as any).stderr?.toString() || msg || "拉取失败";
         res.writeHead(200, { ...cors });
         res.end(JSON.stringify({ error: "pull_error", message: errMsg }));
       }
       return true;
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     res.writeHead(200, { ...cors });
-    res.end(JSON.stringify({ error: e.message?.includes("not a git repository") ? "not_a_repo" : "git_error", message: e.message }));
+    res.end(JSON.stringify({ error: (e as Error).message?.includes("not a git repository") ? "not_a_repo" : "git_error", message: (e as Error).message }));
     return true;
   }
 
   return false;
 };
-
-// Exported for reuse elsewhere
-export { findGitRoot, statusLabel };

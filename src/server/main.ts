@@ -48,8 +48,12 @@ async function main() {
     const text = line.trim();
     if (!text) { rl.prompt(); return; }
 
-    session.once("agent_end", () => {
-      rl.prompt();
+    // agent_end 后恢复 prompt。PI SDK AgentSession 类型未导出 once，通过 subscribe + 立即退订实现
+    const unsub = session.subscribe((event: any) => {
+      if (event.type === "agent_end") {
+        unsub();
+        rl.prompt();
+      }
     });
 
     session.prompt(text);

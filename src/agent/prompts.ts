@@ -12,6 +12,8 @@ export interface PromptSection {
   content: string;
   /** 是否需要每次重新计算（如环境信息） */
   volatile?: boolean;
+  /** 是否启用。设为 false 时 resolveSystemPrompt 会跳过这片。运行时可通过 setSectionEnabled() 开关 */
+  enabled?: boolean;
 }
 
 const sectionCache = new Map<string, PromptSection>();
@@ -19,11 +21,24 @@ const sectionCache = new Map<string, PromptSection>();
 /**
  * 注册一个 system prompt section。
  * 相同 key 的 section 会被缓存，直到调用 invalidateSection(key)。
+ *
+ * @param key   唯一标识
+ * @param content  内容
+ * @param options  可选：volatile（每次重算）、enabled（是否启用，默认 true）
  */
-export function defineSection(key: string, content: string, volatile = false): PromptSection {
-  const section: PromptSection = { key, content, volatile };
+export function defineSection(key: string, content: string, options?: boolean | { volatile?: boolean; enabled?: boolean }): PromptSection {
+  const opts = typeof options === "boolean" ? { volatile: options } : (options || {});
+  const section: PromptSection = { key, content, volatile: opts.volatile, enabled: opts.enabled ?? true };
   sectionCache.set(key, section);
   return section;
+}
+
+/**
+ * 动态开关一个 section（运行时修改 enabled 状态，不需要重新注册）。
+ */
+export function setSectionEnabled(key: string, enabled: boolean): void {
+  const section = sectionCache.get(key);
+  if (section) section.enabled = enabled;
 }
 
 /**
@@ -34,11 +49,20 @@ export function invalidateSection(key: string): void {
 }
 
 /**
- * 合并所有已注册的 sections 为一个完整的 system prompt。
+ * 使所有缓存 section 失效（volatile 不受影响，它们本来就不缓存）。
+ */
+export function invalidateAllSections(): void {
+  sectionCache.clear();
+}
+
+/**
+ * 合并所有已注册且启用的 sections 为一个完整的 system prompt。
+ * enabled === false 的 section 会被跳过。
  */
 export function resolveSystemPrompt(): string {
   const parts: string[] = [];
   for (const [, section] of sectionCache) {
+    if (section.enabled === false) continue;
     parts.push(section.content);
   }
   return parts.join("\n\n");
@@ -66,4 +90,13 @@ defineSection("code_style", `## 代码风格
 - 注释密度与周围代码保持一致
 - 使用 markdown 链接格式引用文件：\`[filename](path)\`
 - 渐进式修改，不重写
+`);
+
+defineSection("response_style", `## 回复风格
+
+根据消息的复杂程度自动调节回复详细程度。
+问候和简单查询用一句话回答，复杂任务深入分析。
+
+不要在最终回答中输出内部思考、计划步骤或英文过程句。
+需要说明操作时，用一句中文简述做了什么和结果。
 `);

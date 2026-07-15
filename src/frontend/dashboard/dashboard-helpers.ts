@@ -11,6 +11,7 @@ window.__state = {
   _activePanel: 'explorer',
   _fileTabs: [],
   _activeFileTab: null,
+  _sessionTabs: [],
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -28,6 +29,7 @@ window.__state = {
 // ═══════════════════════════════════════════════════════════════════
 
 (window as any).App = {
+  Constants: { WS_KEY: 'workspace_path' } as Record<string, string>,
   UI: {} as Record<string, Function>,
   Chat: {} as Record<string, Function>,
   File: {} as Record<string, Function>,

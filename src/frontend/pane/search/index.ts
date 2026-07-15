@@ -37,9 +37,9 @@ let _isSearching = false;
 let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let _hasSearched = false;
 
-// NOTE: workspace_path key also used by explorer-service.ts — don't redeclare const (global script conflict)
+// NOTE: WS_KEY is in App.Constants.WS_KEY — don't redeclare const
 function getSearchRoot(): string {
-  return localStorage.getItem("workspace_path") || "";
+  return localStorage.getItem(App.Constants.WS_KEY) || "";
 }
 
 // ─── DOM refs ───────────────────────────────────────────────────
@@ -136,10 +136,11 @@ async function doSearch(): Promise<void> {
 
   try {
     _results = (await runSearch(_searchQuery.trim(), _searchType, root, _searchCase)).results;
-  } catch (e: any) {
+  } catch (e: unknown) {
     _results = [];
+    const msg = e instanceof Error ? e.message : String(e);
     const list = el("search-results");
-    if (list) list.innerHTML = `<div class="search-status error">搜索失败: ${E(e.message || e)}</div>`;
+    if (list) list.innerHTML = `<div class="search-status error">搜索失败: ${E(msg)}</div>`;
   }
   _isSearching = false;
   renderResults();
@@ -201,8 +202,9 @@ async function openSearchResult(filePath: string, line?: number): Promise<void> 
     const content = d.encoding === "base64" ? "[二进制文件，无法预览]" : d.content;
     const lang = filePath.split(".").pop() || "";
     openFileTab(filePath, content, lang);
-  } catch (e: any) {
-    toast("读取失败: " + (e.message || e), "error");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    toast("读取失败: " + msg, "error");
   }
 }
 

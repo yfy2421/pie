@@ -16,8 +16,20 @@ interface DashboardData {
 
 interface Message {
   role: 'user' | 'assistant';
+  turnId?: string;
   content: string;
+  thinking?: string;
+  trace?: Array<Record<string, unknown>>;
   streaming?: boolean;
+  error?: ChatErrorState;
+}
+
+interface ChatErrorState {
+  title: string;
+  message: string;
+  reason?: string;
+  nextSteps?: string[];
+  raw?: string;
 }
 
 interface ProviderKeyInfo {
@@ -47,6 +59,7 @@ interface AppState {
   _activePanel: string;
   _fileTabs: FileTab[];
   _activeFileTab: string | null;
+  _sessionTabs: string[];
 }
 
 interface FileTab {
@@ -58,12 +71,118 @@ interface FileTab {
 
 // ─── App 命名空间 ─────────────────────────────────────────────
 // 收敛所有全局函数，逐步替代 window.xxx 模式
+interface AppUI {
+  $(id: string): HTMLElement | null;
+  S(name: string, size?: number): string;
+  E(s: unknown): string;
+  F(s: number): string;
+  sb(id: string): void;
+  winCtrl(action: string): void;
+  toast(msg: string, type?: 'info' | 'error' | 'success'): void;
+  getD(): Promise<void>;
+  refresh(): Promise<void>;
+  layout(): void;
+  togglePanel(name: string): void;
+  renderPanel(name: string, pc?: HTMLElement | null): void;
+  sinfoHTML(): string;
+  refreshSinfo(): void;
+  renderTabs(): void;
+  renderSessionTabs(activeId?: string): void;
+  closeChatTab(): void;
+  switchTab(fileId: string | null): void;
+  openFileTab(id: string, content: string, lang?: string): void;
+  closeFileTab(id: string): void;
+  saveCurrentFile(): Promise<void>;
+}
+interface AppChat {
+  msgs(): string;
+  appendDelta(text: string): void;
+  renderTrace(trace: Array<Record<string, unknown>> | undefined): string;
+  updateLastBlock(block: Record<string, unknown>): boolean;
+  bind(): void;
+  updateUI(): void;
+  updateModelName(): void;
+  showModelPicker(e: MouseEvent): void;
+  addAttachment(att: Omit<ChatAttachment, 'id'>): void;
+  removeAttachment(id: string): void;
+  clearAttachments(): void;
+  getPendingAttachments(): ChatAttachment[];
+  showDropZone(show: boolean): void;
+  buildInstruction(message: string): string;
+  retryLastTurn(): void;
+  copyLastError(): Promise<void>;
+  refreshWorkspaceState(): void;
+  scheduleMessagesRender(scroll?: boolean): void;
+}
+interface AppFile {
+  toggleFileMenu(ev: MouseEvent): void;
+  closeFM(): void;
+  fileAction(action: string): void;
+  launchCli(): void;
+  openSearchResult(filePath: string, line?: number): Promise<void>;
+}
+interface AppSession {
+  loadSessions(): void;
+  newSession(): void;
+  renameSession(el: HTMLElement, id: string): void;
+  deleteSession(id: string): void;
+  pinSession(id: string, pinned: boolean): void;
+  branchSession(id: string): void;
+  switchSession(id: string): void;
+  commitSessionTab(oldId: string, newId: string): void;
+  getActiveSessionTabId(): string | null;
+  setActiveSessionTabId(id: string | null): void;
+  renderSessionTabs(activeId?: string): void;
+  closeSessionTab(id: string): void;
+}
+interface AppSettings {
+  openSettingsModal(): void;
+  closeSettingsModal(): void;
+  switchSettingsModal(tab: string): void;
+  selectProvider(prov: string): void;
+  toggleKeyVis(prov: string): void;
+  saveApiKey(provider: string): void;
+  loadProviderModels(prov: string): void;
+  selectModel(provider: string, modelId: string): void;
+  provDragStart(ev: DragEvent, idx: number): void;
+  provDragOver(ev: DragEvent, idx: number): void;
+  provDrop(ev: DragEvent, idx: number): void;
+  changeFontSize(delta: number): void;
+  applyGeneralSetting(key: string, val: boolean): void;
+  toggleAutoSaveSetting(): void;
+  setSearchType(type: 'filename' | 'text'): void;
+  toggleCaseSensitive(): void;
+}
+interface AppGit {
+  refreshGit(): Promise<void>;
+  openGitFile(filePath: string): Promise<void>;
+  commit(): Promise<void>;
+  push(): Promise<void>;
+  pull(): Promise<void>;
+}
+interface AppConstants {
+  WS_KEY: string;
+}
+
 interface AppNamespace {
-  UI: Record<string, Function>;
-  Chat: Record<string, Function>;
-  File: Record<string, Function>;
-  Session: Record<string, Function>;
-  Settings: Record<string, Function>;
+  Constants: AppConstants;
+  UI: AppUI;
+  Chat: AppChat;
+  File: AppFile;
+  Session: AppSession;
+  Settings: AppSettings;
+  Git: AppGit;
+}
+
+interface MonacoAPI {
+  create(container: HTMLElement): void;
+  setValue(val: string): void;
+  getValue(): string;
+  setLang(id: string): void;
+  dispose(): void;
+  tsOpenFile(filePath: string, content: string): void;
+  tsChangeFile(filePath: string, content: string): void;
+  tsCloseFile(filePath: string): void;
 }
 
 interface Window {
@@ -71,6 +190,8 @@ interface Window {
   _provOrder?: string[];
   __state: AppState;
   App: AppNamespace;
+  __monaco: MonacoAPI;
+  ExplorerService: typeof ExplorerService;
 }
 
 // 公共函数声明（在 HTML onclick 中用）
@@ -88,11 +209,16 @@ declare function togglePanel(name: string): void;
 declare function renderPanel(name: string, pc?: HTMLElement | null): void;
 declare function sinfoHTML(): string;
 declare function refreshSinfo(): void;
+declare function renderSessionTabs(activeId?: string): void;
+declare function closeChatTab(): void;
 declare function msgs(): string;
 declare function appendDelta(text: string): void;
 declare function bind(): void;
 declare function updateUI(): void;
 declare function showModelPicker(e: MouseEvent): void;
+declare function retryLastTurn(): void;
+declare function copyLastError(): Promise<void>;
+declare function refreshWorkspaceState(): void;
 declare function toggleFileMenu(ev: MouseEvent): void;
 declare function closeFM(): void;
 declare function fileAction(action: string): void;
@@ -112,7 +238,22 @@ declare function loadSessions(): void;
 declare function newSession(): void;
 declare function renameSession(el: HTMLElement, id: string): void;
 declare function deleteSession(id: string): void;
+declare function pinSession(id: string, pinned: boolean): void;
+declare function branchSession(id: string): void;
 declare function switchSession(id: string): void;
+declare function commitSessionTab(oldId: string, newId: string): void;
+declare function getActiveSessionTabId(): string | null;
+declare function setActiveSessionTabId(id: string | null): void;
+declare function closeSessionTab(id: string): void;
+declare function openFileTab(id: string, content: string, lang?: string): void;
+declare function closeFileTab(id: string): void;
+declare function switchTab(fileId: string | null): void;
+declare function renderTabs(): void;
+declare function registerPane(name: string, render: (container: HTMLElement) => void): void;
+declare function saveCurrentFile(): Promise<void>;
+declare function tabContextMenu(e: MouseEvent, id: string): void;
+declare function tabMoreMenu(e: MouseEvent): void;
+declare function toggleExplorerFilter(): void;
 
 // Tree widget
 interface TreeNode { id: string; label: string; icon: string; isDir: boolean; children?: TreeNode[]; }
@@ -139,6 +280,33 @@ declare function closeFileTab(id: string): void;
 declare function switchTab(fileId: string | null): void;
 declare function renderTabs(): void;
 
+// ─── Token / Session Stats (from API /api/token-usage) ────────
+interface TokenUsage {
+  tokens: number;
+  contextWindow: number;
+  percent: number;
+}
+
+interface SessionStats {
+  tokens?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
+  cost?: number;
+  totalTokens?: number;
+  toolCalls?: number;
+  turns?: number;
+}
+
+// ─── Explorer API item ──────────────────────────────────────────
+interface ExplorerItem {
+  name: string;
+  path: string;
+  isDir: boolean;
+}
+
 // ─── Chat Attachment Types ──────────────────────────────────────
 type AttachmentKind = "file" | "folder" | "clip";
 
@@ -158,13 +326,13 @@ interface ChatAttachment {
 
 // ExplorerService
 declare class ExplorerService {
-  static fetchDir(root: string, path: string): Promise<{ items: any[]; rootDir: string; relativePath: string }>;
+  static fetchDir(root: string, path: string): Promise<{ items: ExplorerItem[]; rootDir: string; relativePath: string }>;
   static getWorkspacePath(): string;
   static setWorkspacePath(p: string): void;
   static selectWorkspace(): Promise<string | null>;
   static applyWorkspace(): Promise<void>;
   static iconFor(name: string, dir: boolean): string;
-  static toTreeNodes(items: any[]): TreeNode[];
+  static toTreeNodes(items: ExplorerItem[]): TreeNode[];
   static fileOp(op: 'new' | 'rename' | 'delete' | 'move', root: string, path: string, newPath?: string): Promise<void>;
   static _setTree(t: Tree | null): void;
   static _getTree(): Tree | null;

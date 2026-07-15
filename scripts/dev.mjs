@@ -35,20 +35,34 @@ function isPortInUse(port) {
   });
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function killPortProcess(port) {
+  try {
+    const out = execSync(`netstat -ano | findstr "LISTENING" | findstr ":${port} "`, { encoding: "utf8", stdio: "pipe" });
+    for (const line of out.trim().split("\n")) {
+      const pid = line.trim().split(/\s+/).pop();
+      if (pid && pid !== "0") { try { execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" }); } catch {} }
+    }
+  } catch {}
+}
+
+async function waitForPortFree(port, attempts = 12) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (!(await isPortInUse(port))) return true;
+    await delay(150);
+  }
+  return false;
+}
+
 // ─── 清理残留进程 ─────────────────────────────────────────────
 function cleanupOldProcesses() {
   // 强制杀掉上次的 Electron / Vite / pi-server
   try { execSync(`taskkill /F /IM electron.exe`, { stdio: "ignore" }); } catch {}
   // 用端口反查 PID 杀掉残留
-  for (const p of [DEV_PORT, VITE_PORT]) {
-    try {
-      const out = execSync(`netstat -ano | findstr "LISTENING" | findstr ":${p} "`, { encoding: "utf8", stdio: "pipe" });
-      for (const line of out.trim().split("\n")) {
-        const pid = line.trim().split(/\s+/).pop();
-        if (pid && pid !== "0") { try { execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" }); } catch {} }
-      }
-    } catch {}
-  }
+  for (const p of [DEV_PORT, VITE_PORT]) killPortProcess(p);
   try { fs.unlinkSync(PID_FILE); } catch {}
 }
 
@@ -92,6 +106,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 let serverProcess = null;
 let electronProcess = null;
 let viteProcess = null;
+let serverStartPromise = null;
+let serverRestartTimer = null;
+let pendingServerRestartFile = null;
+let frontendCompileTimer = null;
+let intentionalElectronStop = false;
 
 async function startVite() {
   if (viteProcess) return;
@@ -106,6 +125,21 @@ async function startVite() {
 }
 
 function startServer() {
+  if (serverStartPromise) return serverStartPromise;
+  serverStartPromise = startServerInner().finally(() => { serverStartPromise = null; });
+  return serverStartPromise;
+}
+
+async function startServerInner() {
+  if (serverProcess) {
+    stopServer();
+    await waitForPortFree(DEV_PORT);
+  }
+  if (await isPortInUse(DEV_PORT)) {
+    killPortProcess(DEV_PORT);
+    await waitForPortFree(DEV_PORT);
+  }
+
   return new Promise((resolve, reject) => {
     if (serverProcess) {
       stopServer();
@@ -132,7 +166,7 @@ function startServer() {
       serverProcess = null;
       if (code !== 0 && !resolved) {
         console.log(`pi-server exited with code ${code} — restarting in 1s...`);
-        setTimeout(() => resolve(startServer()), 1000);
+        setTimeout(() => resolve(startServerInner()), 1000);
       }
     });
     serverProcess.on("error", reject);
@@ -151,21 +185,26 @@ function stopServer() {
 function startElectron() {
   if (electronProcess) {
     // 先关闭所有旧 Electron 窗口
+    intentionalElectronStop = true;
     try { execSync("taskkill /F /IM electron.exe", { stdio: "ignore" }); } catch {}
     electronProcess = null;
   }
   console.log("⚡ Starting Electron...");
-  // 如需 HMR（从 Vite 加载），将下面 env 中的 VITE_DEV_PORT 取消注释
-  // ELECTRON_RUN_AS_NODE 强制 Electron 以 Node.js 模式运行，跳过主进程初始化
+  // 开发模式从 Vite 加载，保留 HMR；确保 Electron 不被当作 Node 进程启动。
   const electronEnv = { ...process.env };
   delete electronEnv.ELECTRON_RUN_AS_NODE;
-  electronProcess = spawn("npx", ["electron", "."], {
+  const child = spawn("npx", ["electron", "."], {
     cwd: ROOT, stdio: "inherit", shell: true,
     env: { ...electronEnv, NODE_ENV: "development", VITE_DEV_PORT: String(VITE_PORT) },
   });
+  electronProcess = child;
   registerPid(electronProcess.pid);
-  electronProcess.on("exit", (code) => {
-    electronProcess = null;
+  child.on("exit", (code) => {
+    if (electronProcess === child) electronProcess = null;
+    if (intentionalElectronStop) {
+      intentionalElectronStop = false;
+      return;
+    }
     if (code !== 0 && code !== null) {
       setTimeout(startElectron, 1000);
     }
@@ -179,9 +218,16 @@ function setupWatcher() {
     path.join(ELECTRON_SRC, "frontend", "dashboard.html"),
   ], { ignoreInitial: true });
 
-  serverWatcher.on("change", async (f) => {
-    console.log(`📝 ${path.relative(ROOT, f)} changed — restarting pi-server`);
-    await startServer();
+  serverWatcher.on("change", (f) => {
+    pendingServerRestartFile = f;
+    if (serverRestartTimer) clearTimeout(serverRestartTimer);
+    serverRestartTimer = setTimeout(async () => {
+      const file = pendingServerRestartFile;
+      pendingServerRestartFile = null;
+      serverRestartTimer = null;
+      console.log(`📝 ${path.relative(ROOT, file)} changed — restarting pi-server`);
+      await startServer();
+    }, 150);
   });
 
   const electronWatcher = watch([
@@ -194,6 +240,27 @@ function setupWatcher() {
     buildElectron();
     setTimeout(startElectron, 300);
   });
+
+  const frontendRoot = path.join(ELECTRON_SRC, "frontend");
+  const frontendWatcher = watch(frontendRoot, {
+    ignoreInitial: true,
+    ignored: (file) => file.includes(`${path.sep}gen${path.sep}`) || file.endsWith(".d.ts"),
+  });
+  const compileFrontend = (file) => {
+    if (!file.endsWith(".ts") || file.endsWith(".d.ts")) return;
+    if (frontendCompileTimer) clearTimeout(frontendCompileTimer);
+    frontendCompileTimer = setTimeout(() => {
+      frontendCompileTimer = null;
+      try {
+        execSync("node scripts/compile-frontend-ts.mjs", { cwd: ROOT, stdio: "pipe" });
+        console.log(`📝 ${path.relative(ROOT, file)} changed — frontend recompiled`);
+      } catch (err) {
+        console.error("❌ Frontend compile failed:", err.stderr?.toString() || err.message);
+      }
+    }, 80);
+  };
+  frontendWatcher.on("add", compileFrontend);
+  frontendWatcher.on("change", compileFrontend);
 }
 
 // ─── 入口 ─────────────────────────────────────────────────────

@@ -34,32 +34,54 @@ function closeFMOutside(ev: MouseEvent): void {
   if (!(ev.target as HTMLElement).closest('#file-menu') && !(ev.target as HTMLElement).closest('.top-tab')) closeFM();
 }
 
+function resetWorkspaceState(workspace: string): void {
+  const st = window.__state;
+  const oldCS = st.CS;
+  if (oldCS) { oldCS.onmessage = null; oldCS.onerror = null; oldCS.close(); st.CS = null; }
+  st.IL = false;
+  st.M = [];
+  st._fileTabs = [];
+  st._activeFileTab = null;
+  st._sessionTabs = [];
+  localStorage.setItem(App.Constants.WS_KEY, workspace);
+  try { localStorage.removeItem('file-tabs'); localStorage.removeItem('last-session-id'); localStorage.removeItem('active-session-tab'); localStorage.removeItem('session-tabs'); localStorage.removeItem('session-tab-labels'); localStorage.removeItem('chat-tab-open'); } catch {}
+  App.Chat?.clearAttachments?.();
+  const msgsEl = $('ms');
+  if (msgsEl) { msgsEl.innerHTML = (window as any).msgs ? (window as any).msgs() : ''; msgsEl.scrollTop = 0; }
+  const ci = $('ci') as HTMLTextAreaElement | null;
+  if (ci) { ci.disabled = false; ci.value = ''; ci.style.height = 'auto'; }
+  const cs = $('cs') as HTMLButtonElement | null;
+  if (cs) { cs.disabled = false; cs.title = '发送消息'; cs.innerHTML = S('iup', 16); }
+  const m = (window as any).__monaco;
+  if (m?.dispose) m.dispose();
+  switchTab(null);
+  (window as any).renderSessionTabs?.();
+}
+
 function fileAction(action: string): void {
   const api = (window as any).electronAPI as ElectronAPI | undefined;
   if (action === 'newWindow' && api) api.newWindow();
   else if (action === 'openFile' && api) api.openFile().then((p: string | null) => { if (p) toast('已选择: ' + p); });
-  else if (action === 'openFolder' && api) api.openFolder().then((p: string | null) => {
+  else if (action === 'openFolder' && api) api.openFolder().then(async (p: string | null) => {
     if (p) {
-      const oldPath = localStorage.getItem('workspace_path');
+      const oldPath = localStorage.getItem(App.Constants.WS_KEY);
       if (p === oldPath) return; // 同路径不重复切换
-      localStorage.setItem('workspace_path', p);
-      fetch('/api/workspace/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspace: p }) }).catch(() => {});
+      try {
+        const r = await fetch('/api/workspace/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspace: p }) });
+        if (!r.ok) throw new Error('workspace switch failed');
+      } catch {
+        toast('切换工作区失败', 'error');
+        return;
+      }
+      resetWorkspaceState(p);
       toast('工作区: ' + p);
-      // 清理旧工作区的文件标签和会话
-      window.__state._fileTabs = [];
-      window.__state._activeFileTab = null;
-      window.__state.M = [];
-      try { localStorage.removeItem('file-tabs'); } catch {}
-      const m = (window as any).__monaco;
-      if (m?.dispose) m.dispose();
-      switchTab(null);
       // 重新渲染 Explorer
       const pc = $('pc');
       if (pc) renderPanel('explorer', pc);
       // 重新加载会话列表 + 刷新 Git
       loadSessions();
-      const App = (window as any).App;
-      if (App?.Git?.refreshGit) setTimeout(() => App.Git.refreshGit(), 300);
+      const appNamespace = (window as any).App;
+      if (appNamespace?.Git?.refreshGit) setTimeout(() => appNamespace.Git.refreshGit(), 300);
     }
   });
   else if (action === 'save' && api) { /* handled by Monaco Ctrl+S */ }
@@ -87,6 +109,7 @@ function launchCli(): void {
 window.toggleFileMenu = toggleFileMenu;
 window.closeFM = closeFM;
 window.fileAction = fileAction as any;
+window.resetWorkspaceState = resetWorkspaceState as any;
 window.launchCli = launchCli;
 
 // ─── App 命名空间绑定 ──────────────────────────────────────
@@ -95,5 +118,6 @@ if (AppFile) {
   AppFile.toggleFileMenu = toggleFileMenu;
   AppFile.closeFM = closeFM;
   AppFile.fileAction = fileAction;
+  AppFile.resetWorkspaceState = resetWorkspaceState;
   AppFile.launchCli = launchCli;
 }

@@ -1,10 +1,11 @@
 // ExplorerService — API 调用 + 状态管理（服务层）
 /// <reference path="../../dashboard.d.ts" />
 
-const WS_KEY = 'workspace_path';
+const WS_KEY = (window as any).App?.Constants?.WS_KEY || 'workspace_path';
 
-class ExplorerService {
+export class ExplorerService {
   static _filterEnabled = true;
+  static _lastRefreshKey = '';
 
   static setFilterEnabled(v: boolean): void {
     this._filterEnabled = v;
@@ -13,7 +14,7 @@ class ExplorerService {
   static getFilterEnabled(): boolean { return this._filterEnabled; }
 
   /** 获取目录内容 */
-  static async fetchDir(root: string, path: string): Promise<{ items: any[]; rootDir: string; relativePath: string }> {
+  static async fetchDir(root: string, path: string): Promise<{ items: ExplorerItem[]; rootDir: string; relativePath: string }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
     const filter = this._filterEnabled ? '1' : '0';
@@ -26,9 +27,9 @@ class ExplorerService {
         throw new Error(err.error || res.statusText);
       }
       return res.json();
-    } catch (e: any) {
+    } catch (e: unknown) {
       clearTimeout(timer);
-      if (e.name === 'AbortError') throw new Error('TIMEOUT');
+      if (e instanceof DOMException && e.name === 'AbortError') throw new Error('TIMEOUT');
       throw e;
     }
   }
@@ -142,14 +143,19 @@ class ExplorerService {
   }
 
 /** API items[] → TreeNode[] */
-  static toTreeNodes(items: any[]): TreeNode[] {
-    return (items || []).map((it: any) => ({
+  static toTreeNodes(items: ExplorerItem[]): TreeNode[] {
+    return (items || []).map((it: ExplorerItem) => ({
       id: it.path,
       label: it.name,
       icon: ExplorerService.iconFor(it.name, it.isDir),
       isDir: it.isDir,
     }));
   }
+}
+
+function setExplorerStatus(text: string, kind: 'loading' | 'ready' | 'error' = 'ready'): void {
+  void text;
+  void kind;
 }
 
 // 从 localStorage 恢复筛选状态
@@ -172,8 +178,18 @@ ExplorerService.refreshTree = async function () {
   if ((_explorerTree as any)._editingNode) return;
   try {
     const d = await ExplorerService.fetchDir(ws, '');
-    _explorerTree.setData(ExplorerService.toTreeNodes(d.items));
-  } catch { /* ignore */ }
+    const items = ExplorerService.toTreeNodes(d.items);
+    const refreshKey = JSON.stringify(items.map(item => `${item.isDir ? 'd' : 'f'}:${item.id}:${item.label}`));
+    if (refreshKey === ExplorerService._lastRefreshKey) {
+      setExplorerStatus(`目录已同步 · ${items.length} 项未变化`, 'ready');
+      return;
+    }
+    ExplorerService._lastRefreshKey = refreshKey;
+    _explorerTree.setData(items);
+    setExplorerStatus(`目录已刷新 · ${items.length} 项`, 'ready');
+  } catch {
+    setExplorerStatus('目录刷新失败', 'error');
+  }
 };
 
 // ─── 文件变更自动刷新（SSE）────────────────────────────────
